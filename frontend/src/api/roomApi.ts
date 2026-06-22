@@ -9,6 +9,9 @@ export interface CreateRoomRequest {
   hostName: string;
   hasPassword: boolean;
   password?: string;
+  topicMode: string;
+  themeText: string;
+  turnLimit: number;
 }
 
 export interface JoinRoomRequest {
@@ -28,5 +31,10 @@ export const joinRoom = async (roomCode: string, request: JoinRoomRequest): Prom
 
 export const getRoom = async (roomCode: string): Promise<Room> => {
   const response = await api.get<Room>(`/rooms/${roomCode}`);
+  return response.data;
+};
+
+export const startRoom = async (roomCode: string): Promise<Room> => {
+  const response = await api.post<Room>(`/rooms/${roomCode}/start`);
   return response.data;
 };

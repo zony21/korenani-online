@@ -27,4 +27,11 @@ export class RoomsController {
     this.roomsGateway.notifyPlayersUpdated(roomCode, room.players);
     return room;
   }
+
+  @Post(':roomCode/start')
+  async startRoom(@Param('roomCode') roomCode: string) {
+    const room = await this.roomsService.startRoom(roomCode);
+    this.roomsGateway.notifyRoomStarted(roomCode, room);
+    return room;
+  }
 }

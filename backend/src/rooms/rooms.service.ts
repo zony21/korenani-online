@@ -30,9 +30,22 @@ export class RoomsService {
     }
   }
 
+  private toSafeRoom(room: any) {
+    const { passwordHash, ...safeRoom } = room;
+    return safeRoom;
+  }
+
   async createRoom(dto: CreateRoomDto) {
     if (!dto.hostName?.trim()) {
       throw new BadRequestException('作成者名を入力してください。');
+    }
+
+    if (!dto.themeText?.trim()) {
+      throw new BadRequestException('テーマを入力してください。');
+    }
+
+    if (![10, 20, 30].includes(Number(dto.turnLimit))) {
+      throw new BadRequestException('ターン上限は10、20、30から選択してください。');
     }
 
     let passwordHash: string | null = null;
@@ -42,11 +55,16 @@ export class RoomsService {
       passwordHash = await bcrypt.hash(dto.password!, 10);
     }
 
-    return this.prisma.room.create({
+    const room = await this.prisma.room.create({
       data: {
         roomCode: this.createRoomCode(),
+        topicMode: dto.topicMode || 'free',
+        themeText: dto.themeText.trim(),
+        turnLimit: Number(dto.turnLimit),
+        currentTurn: 0,
         hasPassword: dto.hasPassword,
         passwordHash,
+        status: 'waiting',
         players: {
           create: {
             playerName: dto.hostName.trim(),
@@ -59,6 +77,8 @@ export class RoomsService {
         players: true,
       },
     });
+
+    return this.toSafeRoom(room);
   }
 
   async getRoom(roomCode: string) {
@@ -71,7 +91,7 @@ export class RoomsService {
       throw new NotFoundException('ルームが見つかりません。');
     }
 
-    return room;
+    return this.toSafeRoom(room);
   }
 
   async joinRoom(roomCode: string, dto: JoinRoomDto) {
@@ -79,7 +99,18 @@ export class RoomsService {
       throw new BadRequestException('名前を入力してください。');
     }
 
-    const room = await this.getRoom(roomCode);
+    const room = await this.prisma.room.findUnique({
+      where: { roomCode },
+      include: { players: { orderBy: { joinedAt: 'asc' } } },
+    });
+
+    if (!room) {
+      throw new NotFoundException('ルームが見つかりません。');
+    }
+
+    if (room.status !== 'waiting') {
+      throw new BadRequestException('ゲーム開始後は入室できません。');
+    }
 
     if (room.players.length >= 9) {
       throw new BadRequestException('参加人数の上限に達しています。');
@@ -114,5 +145,37 @@ export class RoomsService {
     });
 
     return this.getRoom(roomCode);
+  }
+
+  async startRoom(roomCode: string) {
+    const room = await this.prisma.room.findUnique({
+      where: { roomCode },
+      include: { players: { orderBy: { joinedAt: 'asc' } } },
+    });
+
+    if (!room) {
+      throw new NotFoundException('ルームが見つかりません。');
+    }
+
+    if (room.players.length < 2) {
+      throw new BadRequestException('2人以上で開始できます。');
+    }
+
+    if (room.status !== 'waiting') {
+      throw new BadRequestException('このルームは開始できません。');
+    }
+
+    const updatedRoom = await this.prisma.room.update({
+      where: { roomCode },
+      data: {
+        status: 'playing',
+        currentTurn: 0,
+      },
+      include: {
+        players: { orderBy: { joinedAt: 'asc' } },
+      },
+    });
+
+    return this.toSafeRoom(updatedRoom);
   }
 }

@@ -10,6 +10,10 @@ datasource db {
 model Room {
   id           Int          @id @default(autoincrement())
   roomCode     String       @unique
+  topicMode    String       @default("free")
+  themeText    String
+  turnLimit    Int          @default(20)
+  currentTurn  Int          @default(0)
   hasPassword  Boolean      @default(false)
   passwordHash String?
   status       String       @default("waiting")
@@ -19,12 +23,14 @@ model Room {
 }
 
 model RoomPlayer {
-  id          Int      @id @default(autoincrement())
-  roomId      Int
-  playerName  String
-  playerColor String
-  isHost      Boolean  @default(false)
-  joinedAt    DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  roomId        Int
+  playerName    String
+  playerColor   String
+  isHost        Boolean  @default(false)
+  turnOrder     Int?
+  assignedTopic String?
+  joinedAt      DateTime @default(now())
 
   room Room @relation(fields: [roomId], references: [id])
 }
