@@ -12,6 +12,14 @@ const topicMode = ref('free');
 const themeText = ref('');
 const turnLimit = ref(20);
 const errorMessage = ref('');
+const createFormRef = ref<HTMLElement | null>(null);
+
+const scrollToCreateForm = () => {
+  createFormRef.value?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start',
+  });
+};
 
 const onCreateRoom = async () => {
   errorMessage.value = '';
@@ -58,11 +66,11 @@ const onCreateRoom = async () => {
           </p>
 
           <div class="hero-actions">
-            <button class="action-button action-blue" type="button" @click="onCreateRoom">
+            <button class="action-button action-blue" type="button" @click="scrollToCreateForm">
               👥
               <strong>
                 ルームを作成する
-                <span>入力内容で新しいルームを作成</span>
+                <span>名前とテーマを入力して作成</span>
               </strong>
             </button>
           </div>
@@ -82,7 +90,7 @@ const onCreateRoom = async () => {
         </div>
       </section>
 
-      <section class="two-column" style="margin-top: 24px;">
+      <section ref="createFormRef" class="two-column" style="margin-top: 24px;">
         <div class="card">
           <h2 class="card-title blue">＋ ルームを作成</h2>
 
@@ -125,7 +133,18 @@ const onCreateRoom = async () => {
             <input id="password" v-model="password" type="text" maxlength="5" placeholder="例）A7K2P" />
           </div>
 
-          <button class="secondary-button" type="button" @click="onCreateRoom">ルームを作成</button>
+          <button
+            class="secondary-button"
+            type="button"
+            :disabled="!hostName.trim() || !themeText.trim()"
+            @click="onCreateRoom"
+          >
+            ルームを作成
+          </button>
+
+          <p v-if="!hostName.trim() || !themeText.trim()" style="color: #475569; font-weight: 700;">
+            名前とテーマを入力すると作成できます。
+          </p>
         </div>
 
         <div class="card">
@@ -136,12 +155,12 @@ const onCreateRoom = async () => {
               URLを共有するだけで参加できます。
             </div>
             <div class="feature">
-              <strong>リアルタイム対戦</strong>
-              参加メンバーがリアルタイムで増えます。
+              <strong>お題を提出</strong>
+              自分が出したお題は自分以外の誰かに配られます。
             </div>
             <div class="feature">
-              <strong>次の段階</strong>
-              ターン順・質問・回答を追加していきます。
+              <strong>自分のお題を当てる</strong>
+              他の人のお題を見ながら、自分のお題を推理します。
             </div>
           </div>
         </div>
