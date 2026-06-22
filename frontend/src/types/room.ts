@@ -5,6 +5,7 @@ export interface RoomPlayer {
   playerColor: string;
   isHost: boolean;
   turnOrder?: number | null;
+  submittedTopic?: string | null;
   assignedTopic?: string | null;
   joinedAt: string;
 }
@@ -31,6 +32,9 @@ export interface Room {
   turnStartedAt?: string | null;
   hasPassword: boolean;
   status: string;
+  winnerPlayerId?: number | null;
+  winnerName?: string | null;
+  correctTopic?: string | null;
   players: RoomPlayer[];
   gameLogs: GameLog[];
 }

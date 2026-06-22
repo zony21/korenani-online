@@ -104,149 +104,6 @@ button {
   backdrop-filter: blur(12px);
 }
 
-.hero-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 28px;
-  padding: 48px;
-  overflow: hidden;
-}
-
-.hero-title {
-  margin: 0 0 18px;
-  font-size: clamp(38px, 7vw, 72px);
-  line-height: 1.05;
-  letter-spacing: 0.02em;
-}
-
-.grad-text {
-  background: linear-gradient(90deg, #14b8a6, #ec4899, #2563eb);
-  -webkit-background-clip: text;
-  color: transparent;
-}
-
-.hero-lead {
-  margin: 0 0 28px;
-  color: var(--text-sub);
-  font-weight: 700;
-  line-height: 1.8;
-}
-
-.hero-actions {
-  display: grid;
-  gap: 14px;
-  max-width: 380px;
-}
-
-.action-button {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 20px;
-  border-radius: 14px;
-  color: #ffffff;
-  font-weight: 900;
-  cursor: pointer;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
-}
-
-.action-button span {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-  opacity: 0.9;
-}
-
-.action-blue {
-  background: linear-gradient(135deg, var(--blue), var(--blue-dark));
-}
-
-.action-green {
-  background: linear-gradient(135deg, var(--green), var(--green-dark));
-}
-
-.hero-illust {
-  position: relative;
-  min-height: 290px;
-  display: grid;
-  place-items: center;
-}
-
-.question-board {
-  width: 260px;
-  height: 170px;
-  border-radius: 18px;
-  border: 8px solid #1e293b;
-  background: #fff7ed;
-  display: grid;
-  place-items: center;
-  font-size: 86px;
-  font-weight: 900;
-  color: #f97316;
-  box-shadow: 0 18px 35px rgba(15, 23, 42, 0.18);
-}
-
-.people-row {
-  position: absolute;
-  bottom: 6px;
-  display: flex;
-  gap: 16px;
-}
-
-.person {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: #dcfce7;
-  font-size: 34px;
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
-}
-
-.bubble {
-  position: absolute;
-  padding: 10px 13px;
-  border-radius: 999px;
-  color: #ffffff;
-  font-weight: 900;
-  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);
-}
-
-.bubble.one {
-  top: 28px;
-  left: 42px;
-  background: #10b981;
-}
-
-.bubble.two {
-  top: 78px;
-  right: 24px;
-  background: #f59e0b;
-}
-
-.feature-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-  margin-top: 22px;
-}
-
-.feature {
-  background: rgba(239, 246, 255, 0.88);
-  border-radius: 16px;
-  padding: 16px;
-  border: 1px solid #dbeafe;
-  color: var(--text-sub);
-  font-size: 14px;
-}
-
-.feature strong {
-  display: block;
-  color: #2563eb;
-  margin-bottom: 4px;
-}
-
 .card {
   width: min(620px, 100%);
   margin: 0 auto;
@@ -422,12 +279,12 @@ select:focus {
 
 .game-layout {
   display: grid;
-  grid-template-columns: 220px 1fr 210px;
+  grid-template-columns: 260px 1fr 210px;
   gap: 22px;
 }
 
 .topic-card {
-  min-height: 280px;
+  min-height: 240px;
   display: grid;
   place-items: center;
   text-align: center;
@@ -527,19 +384,63 @@ select:focus {
   color: #334155;
 }
 
+.topic-submit-box {
+  margin-top: 22px;
+  padding: 18px;
+  border-radius: 18px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+}
+
+.topic-submit-box h3 {
+  margin: 0 0 8px;
+  color: #1d4ed8;
+}
+
+.topic-submit-box p {
+  margin: 0 0 12px;
+  color: #475569;
+  font-weight: 700;
+}
+
+.topic-player-item {
+  align-items: flex-start;
+}
+
+.topic-chip {
+  display: inline-flex;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #047857;
+  font-weight: 900;
+}
+
+.topic-chip.hidden {
+  background: #fef3c7;
+  color: #b45309;
+  letter-spacing: 0.08em;
+}
+
+.winner-box {
+  margin-top: 18px;
+  border-radius: 18px;
+  padding: 22px;
+  text-align: center;
+  background: linear-gradient(135deg, #fef3c7, #dcfce7);
+  border: 1px solid #fde68a;
+}
+
+.winner-box h2 {
+  margin: 0 0 8px;
+  color: #047857;
+}
+
 @media (max-width: 900px) {
-  .hero-card,
   .two-column,
   .waiting-grid,
   .game-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-card {
-    padding: 28px;
-  }
-
-  .feature-row {
     grid-template-columns: 1fr;
   }
 

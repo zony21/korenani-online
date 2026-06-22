@@ -19,6 +19,11 @@ export interface JoinRoomRequest {
   password?: string;
 }
 
+export interface SubmitTopicRequest {
+  playerId: number;
+  topic: string;
+}
+
 export interface GameActionRequest {
   playerId: number;
   actionType: 'question' | 'guess';
@@ -42,6 +47,14 @@ export const joinRoom = async (roomCode: string, request: JoinRoomRequest): Prom
 
 export const getRoom = async (roomCode: string): Promise<Room> => {
   const response = await api.get<Room>(`/rooms/${roomCode}`);
+  return response.data;
+};
+
+export const submitTopic = async (
+  roomCode: string,
+  request: SubmitTopicRequest,
+): Promise<Room> => {
+  const response = await api.post<Room>(`/rooms/${roomCode}/topic`, request);
   return response.data;
 };
 

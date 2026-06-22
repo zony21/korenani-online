@@ -4,6 +4,7 @@ import { AdvanceTurnDto } from './dto/advance-turn.dto';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { GameActionDto } from './dto/game-action.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
+import { SubmitTopicDto } from './dto/submit-topic.dto';
 import * as bcrypt from 'bcrypt';
 
 const PLAYER_COLORS = [
@@ -36,6 +37,10 @@ export class RoomsService {
     return [...values].sort(() => Math.random() - 0.5);
   }
 
+  private normalizeAnswer(value: string): string {
+    return value.trim().replace(/\s+/g, '').toLowerCase();
+  }
+
   private toSafeRoom(room: any) {
     const { passwordHash, ...safeRoom } = room;
     return safeRoom;
@@ -55,6 +60,41 @@ export class RoomsService {
     }
 
     return room;
+  }
+
+  private assignTopicsWithoutSelf(players: any[]) {
+    const sortedPlayers = [...players].sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
+
+    if (sortedPlayers.length < 2) {
+      throw new BadRequestException('2人以上で開始できます。');
+    }
+
+    if (sortedPlayers.some((player) => !player.submittedTopic?.trim())) {
+      throw new BadRequestException('全員がお題を提出すると開始できます。');
+    }
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const shuffledTopics = this.shuffle(
+        sortedPlayers.map((player) => ({
+          submittedByPlayerId: player.id,
+          topic: player.submittedTopic,
+        })),
+      );
+
+      const isValid = shuffledTopics.every((topic, index) => {
+        return topic.submittedByPlayerId !== sortedPlayers[index].id;
+      });
+
+      if (isValid) {
+        return sortedPlayers.map((player, index) => ({
+          playerId: player.id,
+          assignedTopic: shuffledTopics[index].topic,
+          turnOrder: index,
+        }));
+      }
+    }
+
+    throw new BadRequestException('お題の配布に失敗しました。もう一度開始してください。');
   }
 
   async createRoom(dto: CreateRoomDto) {
@@ -163,6 +203,33 @@ export class RoomsService {
     return this.getRoom(roomCode);
   }
 
+  async submitTopic(roomCode: string, dto: SubmitTopicDto) {
+    if (!dto.topic?.trim()) {
+      throw new BadRequestException('お題を入力してください。');
+    }
+
+    const room = await this.getRoomEntity(roomCode);
+
+    if (room.status !== 'waiting') {
+      throw new BadRequestException('ゲーム開始後はお題を変更できません。');
+    }
+
+    const player = room.players.find((item) => item.id === Number(dto.playerId));
+
+    if (!player) {
+      throw new BadRequestException('プレイヤーが見つかりません。');
+    }
+
+    await this.prisma.roomPlayer.update({
+      where: { id: player.id },
+      data: {
+        submittedTopic: dto.topic.trim(),
+      },
+    });
+
+    return this.getRoom(roomCode);
+  }
+
   async startRoom(roomCode: string) {
     const room = await this.prisma.room.findUnique({
       where: { roomCode },
@@ -181,24 +248,41 @@ export class RoomsService {
       throw new BadRequestException('このルームは開始できません。');
     }
 
-    const shuffledPlayers = this.shuffle(room.players);
+    const assignedPlayers = this.assignTopicsWithoutSelf(room.players);
 
     await Promise.all(
-      shuffledPlayers.map((player, index) =>
+      assignedPlayers.map((player) =>
         this.prisma.roomPlayer.update({
-          where: { id: player.id },
-          data: { turnOrder: index },
+          where: { id: player.playerId },
+          data: {
+            assignedTopic: player.assignedTopic,
+            turnOrder: player.turnOrder,
+          },
         }),
       ),
     );
 
+    const firstPlayer = assignedPlayers[0];
+    const firstPlayerEntity = room.players.find((player) => player.id === firstPlayer.playerId);
+
     await this.prisma.gameLog.create({
       data: {
         roomId: room.id,
-        playerId: shuffledPlayers[0].id,
+        playerId: firstPlayer.playerId,
         playerName: 'システム',
         actionType: 'system',
-        content: 'ゲームを開始しました。ターン順がランダムに決定されました。',
+        content: 'ゲームを開始しました。自分以外が提出したお題からランダムに配布されました。',
+        turnNumber: 1,
+      },
+    });
+
+    await this.prisma.gameLog.create({
+      data: {
+        roomId: room.id,
+        playerId: firstPlayer.playerId,
+        playerName: 'システム',
+        actionType: 'system',
+        content: `${firstPlayerEntity?.playerName ?? 'プレイヤー'}さんの手番です。`,
         turnNumber: 1,
       },
     });
@@ -210,6 +294,9 @@ export class RoomsService {
         currentTurn: 1,
         currentPlayerIndex: 0,
         turnStartedAt: new Date(),
+        winnerPlayerId: null,
+        winnerName: null,
+        correctTopic: null,
       },
       include: {
         players: { orderBy: [{ turnOrder: 'asc' }, { joinedAt: 'asc' }] },
@@ -256,6 +343,51 @@ export class RoomsService {
       },
     });
 
+    if (dto.actionType === 'guess') {
+      const assignedTopic = currentPlayer.assignedTopic ?? '';
+      const isCorrect = this.normalizeAnswer(dto.content) === this.normalizeAnswer(assignedTopic);
+
+      if (isCorrect) {
+        await this.prisma.gameLog.create({
+          data: {
+            roomId: room.id,
+            playerId: currentPlayer.id,
+            playerName: 'システム',
+            actionType: 'system',
+            content: `${currentPlayer.playerName}さんが正解しました。正解は「${assignedTopic}」です。`,
+            turnNumber: room.currentTurn,
+          },
+        });
+
+        const finishedRoom = await this.prisma.room.update({
+          where: { roomCode },
+          data: {
+            status: 'finished',
+            winnerPlayerId: currentPlayer.id,
+            winnerName: currentPlayer.playerName,
+            correctTopic: assignedTopic,
+          },
+          include: {
+            players: { orderBy: [{ turnOrder: 'asc' }, { joinedAt: 'asc' }] },
+            gameLogs: { orderBy: { createdAt: 'asc' } },
+          },
+        });
+
+        return this.toSafeRoom(finishedRoom);
+      }
+
+      await this.prisma.gameLog.create({
+        data: {
+          roomId: room.id,
+          playerId: currentPlayer.id,
+          playerName: 'システム',
+          actionType: 'system',
+          content: `${currentPlayer.playerName}さんの解答は不正解でした。`,
+          turnNumber: room.currentTurn,
+        },
+      });
+    }
+
     return this.advanceTurn(roomCode, { playerId: dto.playerId, reason: 'action' });
   }
 
@@ -275,6 +407,17 @@ export class RoomsService {
     const isFinished = nextTurn > room.turnLimit;
 
     if (isFinished) {
+      await this.prisma.gameLog.create({
+        data: {
+          roomId: room.id,
+          playerId: dto.playerId ?? 0,
+          playerName: 'システム',
+          actionType: 'system',
+          content: 'ターン上限に達したためゲームを終了しました。',
+          turnNumber: room.turnLimit,
+        },
+      });
+
       const finishedRoom = await this.prisma.room.update({
         where: { roomCode },
         data: {
@@ -287,18 +430,7 @@ export class RoomsService {
         },
       });
 
-      await this.prisma.gameLog.create({
-        data: {
-          roomId: room.id,
-          playerId: dto.playerId ?? 0,
-          playerName: 'システム',
-          actionType: 'system',
-          content: 'ターン上限に達したためゲームを終了しました。',
-          turnNumber: room.turnLimit,
-        },
-      });
-
-      return this.getRoom(roomCode);
+      return this.toSafeRoom(finishedRoom);
     }
 
     const nextPlayer = room.players[nextPlayerIndex];
@@ -309,9 +441,10 @@ export class RoomsService {
         playerId: nextPlayer.id,
         playerName: 'システム',
         actionType: 'system',
-        content: dto.reason === 'timeout'
-          ? `${room.players[room.currentPlayerIndex]?.playerName ?? 'プレイヤー'}さんの時間切れです。次の手番に移ります。`
-          : `${nextPlayer.playerName}さんの手番です。`,
+        content:
+          dto.reason === 'timeout'
+            ? `${room.players[room.currentPlayerIndex]?.playerName ?? 'プレイヤー'}さんの時間切れです。次の手番に移ります。`
+            : `${nextPlayer.playerName}さんの手番です。`,
         turnNumber: nextTurn,
       },
     });

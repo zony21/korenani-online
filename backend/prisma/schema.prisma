@@ -19,6 +19,9 @@ model Room {
   hasPassword        Boolean       @default(false)
   passwordHash       String?
   status             String        @default("waiting")
+  winnerPlayerId     Int?
+  winnerName         String?
+  correctTopic       String?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   players            RoomPlayer[]
@@ -26,14 +29,15 @@ model Room {
 }
 
 model RoomPlayer {
-  id            Int      @id @default(autoincrement())
-  roomId        Int
-  playerName    String
-  playerColor   String
-  isHost        Boolean  @default(false)
-  turnOrder     Int?
-  assignedTopic String?
-  joinedAt      DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  roomId         Int
+  playerName     String
+  playerColor    String
+  isHost         Boolean  @default(false)
+  turnOrder      Int?
+  submittedTopic String?
+  assignedTopic  String?
+  joinedAt       DateTime @default(now())
 
   room Room @relation(fields: [roomId], references: [id])
 }

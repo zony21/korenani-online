@@ -18,6 +18,7 @@ const advance_turn_dto_1 = require("./dto/advance-turn.dto");
 const create_room_dto_1 = require("./dto/create-room.dto");
 const game_action_dto_1 = require("./dto/game-action.dto");
 const join_room_dto_1 = require("./dto/join-room.dto");
+const submit_topic_dto_1 = require("./dto/submit-topic.dto");
 const rooms_gateway_1 = require("./rooms.gateway");
 const rooms_service_1 = require("./rooms.service");
 let RoomsController = class RoomsController {
@@ -34,6 +35,12 @@ let RoomsController = class RoomsController {
     async joinRoom(roomCode, dto) {
         const room = await this.roomsService.joinRoom(roomCode, dto);
         this.roomsGateway.notifyPlayersUpdated(roomCode, room.players);
+        this.roomsGateway.notifyGameUpdated(roomCode, room);
+        return room;
+    }
+    async submitTopic(roomCode, dto) {
+        const room = await this.roomsService.submitTopic(roomCode, dto);
+        this.roomsGateway.notifyGameUpdated(roomCode, room);
         return room;
     }
     async startRoom(roomCode) {
@@ -76,6 +83,14 @@ __decorate([
     __metadata("design:paramtypes", [String, join_room_dto_1.JoinRoomDto]),
     __metadata("design:returntype", Promise)
 ], RoomsController.prototype, "joinRoom", null);
+__decorate([
+    (0, common_1.Post)(':roomCode/topic'),
+    __param(0, (0, common_1.Param)('roomCode')),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, submit_topic_dto_1.SubmitTopicDto]),
+    __metadata("design:returntype", Promise)
+], RoomsController.prototype, "submitTopic", null);
 __decorate([
     (0, common_1.Post)(':roomCode/start'),
     __param(0, (0, common_1.Param)('roomCode')),

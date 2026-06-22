@@ -25,6 +25,10 @@ const myPlayerId = computed(() => {
   return value ? Number(value) : null;
 });
 
+const myPlayer = computed(() => {
+  return room.value?.players.find((player) => player.id === myPlayerId.value) ?? null;
+});
+
 const currentPlayer = computed(() => {
   if (!room.value) {
     return null;
@@ -56,6 +60,14 @@ const sortedPlayers = computed(() => {
   return [...(room.value?.players ?? [])].sort((a, b) => {
     return (a.turnOrder ?? 999) - (b.turnOrder ?? 999);
   });
+});
+
+const topicDisplayPlayers = computed(() => {
+  return sortedPlayers.value.map((player) => ({
+    ...player,
+    visibleTopic: player.id === myPlayerId.value ? '？？？' : player.assignedTopic ?? '未設定',
+    isMine: player.id === myPlayerId.value,
+  }));
 });
 
 const loadRoom = async () => {
@@ -151,14 +163,25 @@ onBeforeUnmount(() => {
 
       <section class="game-layout">
         <div class="member-panel">
-          <h2>ターン順</h2>
+          <h2>お題一覧</h2>
+          <p style="color: #475569; font-weight: 700;">自分のお題だけ隠されています。</p>
+
           <ul class="player-list">
-            <li v-for="player in sortedPlayers" :key="player.id" class="player-item">
+            <li v-for="player in topicDisplayPlayers" :key="player.id" class="player-item topic-player-item">
               <span class="color-dot" :style="{ backgroundColor: player.playerColor }"></span>
-              <span>{{ player.playerName }}</span>
+              <div style="flex: 1;">
+                <strong>{{ player.playerName }}</strong>
+                <div class="topic-chip" :class="{ hidden: player.isMine }">
+                  {{ player.visibleTopic }}
+                </div>
+              </div>
               <span v-if="player.id === currentPlayer?.id" class="badge">手番</span>
             </li>
           </ul>
+
+          <div class="note-box">
+            あなたが当てるお題：<strong>{{ myPlayer?.assignedTopic ? '？？？' : '未設定' }}</strong>
+          </div>
         </div>
 
         <div class="game-panel">
@@ -170,6 +193,17 @@ onBeforeUnmount(() => {
               <p v-if="currentPlayer">現在の手番：{{ currentPlayer.playerName }} さん</p>
               <p v-if="room?.status === 'finished'">ゲーム終了</p>
             </div>
+          </div>
+
+          <div v-if="room?.status === 'finished'" class="winner-box">
+            <template v-if="room.winnerName">
+              <h2>🎉 {{ room.winnerName }} さんの勝利！</h2>
+              <p>正解：{{ room.correctTopic }}</p>
+            </template>
+            <template v-else>
+              <h2>ゲーム終了</h2>
+              <p>ターン上限に達しました。</p>
+            </template>
           </div>
 
           <div class="turn-action-box">
@@ -195,7 +229,7 @@ onBeforeUnmount(() => {
                 <input
                   v-model="actionText"
                   type="text"
-                  :placeholder="actionType === 'question' ? '質問を入力...' : '正解だと思う答えを入力...'"
+                  :placeholder="actionType === 'question' ? '質問を入力...' : '自分のお題だと思う答えを入力...'"
                   :disabled="!isMyTurn"
                 />
                 <button
@@ -210,7 +244,7 @@ onBeforeUnmount(() => {
 
               <div class="hint-box">
                 <template v-if="isMyTurn">
-                  💡 あなたの番です。質問か解答を選んで入力してください。
+                  💡 あなたの番です。質問するか、自分のお題を解答してください。
                 </template>
                 <template v-else>
                   💡 {{ currentPlayer?.playerName ?? '他のプレイヤー' }}さんの番です。
@@ -240,9 +274,7 @@ onBeforeUnmount(() => {
         <div class="timer-panel">
           <h2 style="text-align: center;">残り時間</h2>
           <div class="timer-circle">{{ remainingTimeText }}</div>
-          <p style="text-align: center; color: #475569;">
-            1ターン3分
-          </p>
+          <p style="text-align: center; color: #475569;">1ターン3分</p>
         </div>
       </section>
     </div>
