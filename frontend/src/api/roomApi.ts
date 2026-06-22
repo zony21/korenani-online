@@ -19,6 +19,17 @@ export interface JoinRoomRequest {
   password?: string;
 }
 
+export interface GameActionRequest {
+  playerId: number;
+  actionType: 'question' | 'guess';
+  content: string;
+}
+
+export interface AdvanceTurnRequest {
+  playerId?: number;
+  reason?: 'action' | 'timeout' | 'manual';
+}
+
 export const createRoom = async (request: CreateRoomRequest): Promise<Room> => {
   const response = await api.post<Room>('/rooms', request);
   return response.data;
@@ -36,5 +47,21 @@ export const getRoom = async (roomCode: string): Promise<Room> => {
 
 export const startRoom = async (roomCode: string): Promise<Room> => {
   const response = await api.post<Room>(`/rooms/${roomCode}/start`);
+  return response.data;
+};
+
+export const createGameAction = async (
+  roomCode: string,
+  request: GameActionRequest,
+): Promise<Room> => {
+  const response = await api.post<Room>(`/rooms/${roomCode}/action`, request);
+  return response.data;
+};
+
+export const advanceTurn = async (
+  roomCode: string,
+  request: AdvanceTurnRequest,
+): Promise<Room> => {
+  const response = await api.post<Room>(`/rooms/${roomCode}/advance-turn`, request);
   return response.data;
 };

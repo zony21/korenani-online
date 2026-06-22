@@ -1,5 +1,7 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { AdvanceTurnDto } from './dto/advance-turn.dto';
 import { CreateRoomDto } from './dto/create-room.dto';
+import { GameActionDto } from './dto/game-action.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
 import { RoomsGateway } from './rooms.gateway';
 import { RoomsService } from './rooms.service';
@@ -31,7 +33,22 @@ export class RoomsController {
   @Post(':roomCode/start')
   async startRoom(@Param('roomCode') roomCode: string) {
     const room = await this.roomsService.startRoom(roomCode);
+    this.roomsGateway.notifyGameUpdated(roomCode, room);
     this.roomsGateway.notifyRoomStarted(roomCode, room);
+    return room;
+  }
+
+  @Post(':roomCode/action')
+  async createAction(@Param('roomCode') roomCode: string, @Body() dto: GameActionDto) {
+    const room = await this.roomsService.createAction(roomCode, dto);
+    this.roomsGateway.notifyGameUpdated(roomCode, room);
+    return room;
+  }
+
+  @Post(':roomCode/advance-turn')
+  async advanceTurn(@Param('roomCode') roomCode: string, @Body() dto: AdvanceTurnDto) {
+    const room = await this.roomsService.advanceTurn(roomCode, dto);
+    this.roomsGateway.notifyGameUpdated(roomCode, room);
     return room;
   }
 }

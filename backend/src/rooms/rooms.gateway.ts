@@ -32,4 +32,8 @@ export class RoomsGateway {
   notifyRoomStarted(roomCode: string, room: unknown) {
     this.server.to(roomCode).emit('roomStarted', room);
   }
+
+  notifyGameUpdated(roomCode: string, room: unknown) {
+    this.server.to(roomCode).emit('gameUpdated', room);
+  }
 }

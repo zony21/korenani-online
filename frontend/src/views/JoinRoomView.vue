@@ -41,22 +41,41 @@ const onJoinRoom = async () => {
 
 <template>
   <main class="page">
-    <section class="card">
-      <h1>ルーム入室</h1>
-      <p>ルームコード：{{ roomCode }}</p>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="logo">
+          <span class="logo-icon">❔</span>
+          <span><span class="logo-accent">これなに？</span><span class="logo-main">オンライン</span></span>
+        </div>
+        <button class="header-button" type="button" @click="router.push('/')">ホームに戻る</button>
+      </header>
 
-      <div class="form-row">
-        <label for="playerName">名前</label>
-        <input id="playerName" v-model="playerName" type="text" placeholder="例：はなこ" />
-      </div>
+      <section class="two-column">
+        <div class="card">
+          <h1 class="card-title green">👥 ルームに参加</h1>
+          <p style="text-align: center; color: #475569;">ルームID：{{ roomCode }}</p>
 
-      <div v-if="hasPassword" class="form-row">
-        <label for="password">ルームパスワード</label>
-        <input id="password" v-model="password" type="text" maxlength="5" />
-      </div>
+          <div class="form-row">
+            <label for="playerName">あなたの名前</label>
+            <input id="playerName" v-model="playerName" type="text" placeholder="例）あなたの名前" />
+          </div>
 
-      <button type="button" @click="onJoinRoom">入室</button>
-      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
-    </section>
+          <div v-if="hasPassword" class="form-row">
+            <label for="password">ルームパスワード</label>
+            <input id="password" v-model="password" type="text" maxlength="5" placeholder="5桁英数字" />
+          </div>
+
+          <button class="primary-button" type="button" @click="onJoinRoom">参加する</button>
+          <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title blue">参加の流れ</h2>
+          <div class="note-box">
+            URLを開いて名前を入力すると、待機画面に参加者として表示されます。
+          </div>
+        </div>
+      </section>
+    </div>
   </main>
 </template>
