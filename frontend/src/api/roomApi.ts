@@ -30,6 +30,16 @@ export interface GameActionRequest {
   content: string;
 }
 
+export interface QuestionAnswerRequest {
+  playerId: number;
+  answerKbn: 'yes' | 'no' | 'unknown';
+}
+
+export interface AdvancePhaseRequest {
+  playerId?: number;
+  reason?: 'answer_timeout' | 'result_timeout' | 'manual';
+}
+
 export interface AdvanceTurnRequest {
   playerId?: number;
   reason?: 'action' | 'timeout' | 'manual';
@@ -68,6 +78,23 @@ export const createGameAction = async (
   request: GameActionRequest,
 ): Promise<Room> => {
   const response = await api.post<Room>(`/rooms/${roomCode}/action`, request);
+  return response.data;
+};
+
+export const answerQuestion = async (
+  roomCode: string,
+  questionId: number,
+  request: QuestionAnswerRequest,
+): Promise<Room> => {
+  const response = await api.post<Room>(`/rooms/${roomCode}/question/${questionId}/answer`, request);
+  return response.data;
+};
+
+export const advancePhase = async (
+  roomCode: string,
+  request: AdvancePhaseRequest,
+): Promise<Room> => {
+  const response = await api.post<Room>(`/rooms/${roomCode}/advance-phase`, request);
   return response.data;
 };
 
