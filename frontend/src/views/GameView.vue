@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { advanceTurn, createGameAction, getRoom } from '../api/roomApi';
+import { advancePhase, advanceTurn, answerQuestion, createGameAction, getRoom } from '../api/roomApi';
 import { socket } from '../socket/socket';
-import type { Room } from '../types/room';
+import type { GameQuestion, Room } from '../types/room';
 
-const TURN_SECONDS = 180;
+const DEFAULT_SECONDS = 180;
 
 const route = useRoute();
 const router = useRouter();
@@ -16,7 +16,7 @@ const errorMessage = ref('');
 const actionType = ref<'question' | 'guess'>('question');
 const actionText = ref('');
 const now = ref(Date.now());
-const isAdvancingTimeout = ref(false);
+const isAutoAdvancing = ref(false);
 
 let timerId: number | undefined;
 
@@ -36,18 +36,39 @@ const currentPlayer = computed(() => {
   return room.value.players[room.value.currentPlayerIndex] ?? null;
 });
 
+const activeQuestion = computed<GameQuestion | null>(() => {
+  if (!room.value?.activeQuestionId) {
+    return null;
+  }
+  return room.value.questions?.find((question) => question.id === room.value?.activeQuestionId) ?? null;
+});
+
 const isMyTurn = computed(() => {
-  return currentPlayer.value?.id === myPlayerId.value && room.value?.status === 'playing';
+  return currentPlayer.value?.id === myPlayerId.value && (room.value?.phase ?? 'action') === 'action';
+});
+
+const amIQuestioner = computed(() => {
+  return activeQuestion.value?.playerId === myPlayerId.value;
+});
+
+const myAnswer = computed(() => {
+  return activeQuestion.value?.answers.find((answer) => answer.playerId === myPlayerId.value) ?? null;
+});
+
+const answerTargetPlayers = computed(() => {
+  if (!activeQuestion.value || !room.value) {
+    return [];
+  }
+  return room.value.players.filter((player) => player.id !== activeQuestion.value?.playerId);
 });
 
 const remainingSeconds = computed(() => {
-  if (!room.value?.turnStartedAt || room.value.status !== 'playing') {
-    return TURN_SECONDS;
+  if (!room.value?.phaseEndsAt || room.value.status !== 'playing') {
+    return DEFAULT_SECONDS;
   }
-
-  const startedAt = new Date(room.value.turnStartedAt).getTime();
-  const elapsed = Math.floor((now.value - startedAt) / 1000);
-  return Math.max(TURN_SECONDS - elapsed, 0);
+  const endsAt = new Date(room.value.phaseEndsAt).getTime();
+  const remaining = Math.ceil((endsAt - now.value) / 1000);
+  return Math.max(remaining, 0);
 });
 
 const remainingTimeText = computed(() => {
@@ -69,6 +90,31 @@ const topicDisplayPlayers = computed(() => {
     isMine: player.id === myPlayerId.value,
   }));
 });
+
+const phaseLabel = computed(() => {
+  switch (room.value?.phase ?? 'action') {
+    case 'action':
+      return '質問または解答を選択';
+    case 'answering':
+      return '他プレイヤー回答待ち';
+    case 'result':
+      return '回答結果確認';
+    case 'finished':
+      return 'ゲーム終了';
+    default:
+      return '待機中';
+  }
+});
+
+const answerLabel = (answerKbn: string) => {
+  if (answerKbn === 'yes') {
+    return 'はい';
+  }
+  if (answerKbn === 'no') {
+    return 'いいえ';
+  }
+  return 'どちらともいえない';
+};
 
 const loadRoom = async () => {
   room.value = await getRoom(roomCode);
@@ -94,28 +140,63 @@ const onSubmitAction = async () => {
   }
 };
 
-const onTimeout = async () => {
-  if (!room.value || room.value.status !== 'playing' || isAdvancingTimeout.value) {
+const onSubmitAnswer = async (answerKbn: 'yes' | 'no' | 'unknown') => {
+  errorMessage.value = '';
+
+  if (!myPlayerId.value) {
+    errorMessage.value = 'プレイヤー情報が見つかりません。入室し直してください。';
     return;
   }
 
-  isAdvancingTimeout.value = true;
+  if (!activeQuestion.value) {
+    errorMessage.value = '回答対象の質問が見つかりません。';
+    return;
+  }
 
   try {
-    room.value = await advanceTurn(roomCode, {
-      playerId: currentPlayer.value?.id,
-      reason: 'timeout',
+    room.value = await answerQuestion(roomCode, activeQuestion.value.id, {
+      playerId: myPlayerId.value,
+      answerKbn,
     });
   } catch (error: any) {
-    errorMessage.value = error.response?.data?.message ?? 'ターン更新に失敗しました。';
+    errorMessage.value = error.response?.data?.message ?? '回答に失敗しました。';
+  }
+};
+
+const onPhaseTimeout = async () => {
+  if (!room.value || room.value.status !== 'playing' || isAutoAdvancing.value) {
+    return;
+  }
+
+  isAutoAdvancing.value = true;
+
+  try {
+    if ((room.value.phase ?? 'action') === 'action') {
+      room.value = await advanceTurn(roomCode, {
+        playerId: currentPlayer.value?.id,
+        reason: 'timeout',
+      });
+    } else if (room.value.phase === 'answering') {
+      room.value = await advancePhase(roomCode, {
+        playerId: currentPlayer.value?.id,
+        reason: 'answer_timeout',
+      });
+    } else if (room.value.phase === 'result') {
+      room.value = await advancePhase(roomCode, {
+        playerId: currentPlayer.value?.id,
+        reason: 'result_timeout',
+      });
+    }
+  } catch (error: any) {
+    errorMessage.value = error.response?.data?.message ?? 'フェーズ更新に失敗しました。';
   } finally {
-    isAdvancingTimeout.value = false;
+    isAutoAdvancing.value = false;
   }
 };
 
 watch(remainingSeconds, (value) => {
   if (value === 0) {
-    onTimeout();
+    onPhaseTimeout();
   }
 });
 
@@ -179,8 +260,14 @@ onBeforeUnmount(() => {
             </li>
           </ul>
 
-          <div class="note-box">
-            あなたが当てるお題：<strong>{{ myPlayer?.assignedTopic ? '？？？' : '未設定' }}</strong>
+          <div v-if="room?.phase === 'answering' && activeQuestion" class="answer-status-box">
+            <h3>回答状況</h3>
+            <div v-for="player in answerTargetPlayers" :key="player.id" class="answer-status-row">
+              <span>{{ player.playerName }}</span>
+              <strong>
+                {{ activeQuestion.answers.some((answer) => answer.playerId === player.id) ? '回答済' : '未回答' }}
+              </strong>
+            </div>
           </div>
         </div>
 
@@ -191,7 +278,7 @@ onBeforeUnmount(() => {
               <h2>{{ room?.themeText ?? 'これなに？' }}</h2>
               <p v-if="room">現在ターン：{{ room.currentTurn }} / {{ room.turnLimit }}</p>
               <p v-if="currentPlayer">現在の手番：{{ currentPlayer.playerName }} さん</p>
-              <p v-if="room?.status === 'finished'">ゲーム終了</p>
+              <p>状態：{{ phaseLabel }}</p>
             </div>
           </div>
 
@@ -206,55 +293,62 @@ onBeforeUnmount(() => {
             </template>
           </div>
 
-          <div class="turn-action-box">
-            <template v-if="room?.status === 'playing'">
-              <div class="action-tabs">
-                <button
-                  type="button"
-                  :class="{ active: actionType === 'question' }"
-                  @click="actionType = 'question'"
-                >
-                  質問する
-                </button>
-                <button
-                  type="button"
-                  :class="{ active: actionType === 'guess' }"
-                  @click="actionType = 'guess'"
-                >
-                  解答する
-                </button>
-              </div>
+          <div v-if="(room?.phase ?? 'action') === 'action' && room?.status === 'playing'" class="turn-action-box">
+            <div class="action-tabs">
+              <button type="button" :class="{ active: actionType === 'question' }" @click="actionType = 'question'">
+                質問する
+              </button>
+              <button type="button" :class="{ active: actionType === 'guess' }" @click="actionType = 'guess'">
+                解答する
+              </button>
+            </div>
 
-              <div class="answer-row">
-                <input
-                  v-model="actionText"
-                  type="text"
-                  :placeholder="actionType === 'question' ? '質問を入力...' : '自分のお題だと思う答えを入力...'"
-                  :disabled="!isMyTurn"
-                />
-                <button
-                  class="primary-button"
-                  type="button"
-                  :disabled="!isMyTurn || !actionText.trim()"
-                  @click="onSubmitAction"
-                >
-                  送信する
-                </button>
-              </div>
+            <div class="answer-row">
+              <input
+                v-model="actionText"
+                type="text"
+                :placeholder="actionType === 'question' ? '質問を入力...' : '自分のお題だと思う答えを入力...'"
+                :disabled="!isMyTurn"
+              />
+              <button class="primary-button" type="button" :disabled="!isMyTurn || !actionText.trim()" @click="onSubmitAction">
+                送信する
+              </button>
+            </div>
 
-              <div class="hint-box">
-                <template v-if="isMyTurn">
-                  💡 あなたの番です。質問するか、自分のお題を解答してください。
-                </template>
-                <template v-else>
-                  💡 {{ currentPlayer?.playerName ?? '他のプレイヤー' }}さんの番です。
-                </template>
-              </div>
+            <div class="hint-box">
+              <template v-if="isMyTurn">💡 あなたの番です。質問するか、自分のお題を解答してください。</template>
+              <template v-else>💡 {{ currentPlayer?.playerName ?? '他のプレイヤー' }}さんの番です。</template>
+            </div>
+          </div>
+
+          <div v-if="room?.phase === 'answering' && activeQuestion" class="question-phase-box">
+            <h2>質問</h2>
+            <p class="question-text">{{ activeQuestion.questionText }}</p>
+            <p>質問者：{{ activeQuestion.playerName }}</p>
+
+            <template v-if="amIQuestioner">
+              <div class="hint-box">他プレイヤーの回答を待っています。</div>
             </template>
-
+            <template v-else-if="myAnswer">
+              <div class="hint-box">あなたの回答：{{ answerLabel(myAnswer.answerKbn) }}</div>
+            </template>
             <template v-else>
-              <div class="hint-box">ゲームは終了しています。</div>
+              <div class="answer-choice-grid">
+                <button class="answer-choice yes" type="button" @click="onSubmitAnswer('yes')">はい</button>
+                <button class="answer-choice no" type="button" @click="onSubmitAnswer('no')">いいえ</button>
+                <button class="answer-choice unknown" type="button" @click="onSubmitAnswer('unknown')">どちらともいえない</button>
+              </div>
             </template>
+          </div>
+
+          <div v-if="room?.phase === 'result' && activeQuestion" class="question-result-box">
+            <h2>回答結果</h2>
+            <p class="question-text">{{ activeQuestion.questionText }}</p>
+            <div v-for="answer in activeQuestion.answers" :key="answer.id" class="result-answer-row">
+              <span>{{ answer.playerName }}</span>
+              <strong :class="answer.answerKbn">{{ answerLabel(answer.answerKbn) }}</strong>
+            </div>
+            <div class="hint-box">1分後に次のプレイヤーへ移ります。</div>
           </div>
 
           <div class="log-panel">
@@ -274,7 +368,7 @@ onBeforeUnmount(() => {
         <div class="timer-panel">
           <h2 style="text-align: center;">残り時間</h2>
           <div class="timer-circle">{{ remainingTimeText }}</div>
-          <p style="text-align: center; color: #475569;">1ターン3分</p>
+          <p style="text-align: center; color: #475569;">{{ phaseLabel }}</p>
         </div>
       </section>
     </div>
