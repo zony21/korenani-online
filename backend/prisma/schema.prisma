@@ -8,24 +8,29 @@ datasource db {
 }
 
 model Room {
-  id                 Int           @id @default(autoincrement())
-  roomCode           String        @unique
-  topicMode          String        @default("free")
+  id                 Int            @id @default(autoincrement())
+  roomCode           String         @unique
+  topicMode          String         @default("free")
   themeText          String
-  turnLimit          Int           @default(20)
-  currentTurn        Int           @default(0)
-  currentPlayerIndex Int           @default(0)
+  turnLimit          Int            @default(20)
+  currentTurn        Int            @default(0)
+  currentPlayerIndex Int            @default(0)
   turnStartedAt      DateTime?
-  hasPassword        Boolean       @default(false)
+  phase              String         @default("waiting")
+  phaseStartedAt     DateTime?
+  phaseEndsAt        DateTime?
+  activeQuestionId   Int?
+  hasPassword        Boolean        @default(false)
   passwordHash       String?
-  status             String        @default("waiting")
+  status             String         @default("waiting")
   winnerPlayerId     Int?
   winnerName         String?
   correctTopic       String?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
   players            RoomPlayer[]
   gameLogs           GameLog[]
+  questions          GameQuestion[]
 }
 
 model RoomPlayer {
@@ -53,4 +58,33 @@ model GameLog {
   createdAt  DateTime @default(now())
 
   room Room @relation(fields: [roomId], references: [id])
+}
+
+model GameQuestion {
+  id               Int                  @id @default(autoincrement())
+  roomId           Int
+  playerId         Int
+  playerName       String
+  questionText     String
+  turnNumber       Int
+  status           String               @default("answering")
+  startedAt        DateTime             @default(now())
+  answerDeadlineAt DateTime
+  resultDeadlineAt DateTime?
+  answers          GameQuestionAnswer[]
+
+  room Room @relation(fields: [roomId], references: [id])
+}
+
+model GameQuestionAnswer {
+  id         Int      @id @default(autoincrement())
+  questionId Int
+  playerId   Int
+  playerName String
+  answerKbn  String
+  createdAt  DateTime @default(now())
+
+  question GameQuestion @relation(fields: [questionId], references: [id])
+
+  @@unique([questionId, playerId])
 }
