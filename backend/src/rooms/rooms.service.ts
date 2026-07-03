@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdvancePhaseDto } from './dto/advance-phase.dto';
 import { AdvanceTurnDto } from './dto/advance-turn.dto';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { GameActionDto } from './dto/game-action.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
+import { QuestionAnswerDto } from './dto/question-answer.dto';
 import { SubmitTopicDto } from './dto/submit-topic.dto';
 import * as bcrypt from 'bcrypt';
 
@@ -19,6 +21,10 @@ const PLAYER_COLORS = [
   '#92400E',
 ];
 
+const ACTION_SECONDS = 180;
+const ANSWER_SECONDS = 180;
+const RESULT_SECONDS = 60;
+
 @Injectable()
 export class RoomsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -27,10 +33,8 @@ export class RoomsService {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   }
 
-  private validatePassword(password?: string): void {
-    if (!password || !/^[a-zA-Z0-9]{5}$/.test(password)) {
-      throw new BadRequestException('パスワードは5桁の英数字で入力してください。');
-    }
+  private addSeconds(seconds: number): Date {
+    return new Date(Date.now() + seconds * 1000);
   }
 
   private shuffle<T>(values: T[]): T[] {
@@ -41,18 +45,32 @@ export class RoomsService {
     return value.trim().replace(/\s+/g, '').toLowerCase();
   }
 
+  private validatePassword(password?: string): void {
+    if (!password || !/^[a-zA-Z0-9]{5}$/.test(password)) {
+      throw new BadRequestException('パスワードは5桁の英数字で入力してください。');
+    }
+  }
+
   private toSafeRoom(room: any) {
     const { passwordHash, ...safeRoom } = room;
     return safeRoom;
   }
 
+  private roomInclude() {
+    return {
+      players: { orderBy: [{ turnOrder: 'asc' as const }, { joinedAt: 'asc' as const }] },
+      gameLogs: { orderBy: { createdAt: 'asc' as const } },
+      questions: {
+        orderBy: { startedAt: 'asc' as const },
+        include: { answers: { orderBy: { createdAt: 'asc' as const } } },
+      },
+    };
+  }
+
   private async getRoomEntity(roomCode: string) {
     const room = await this.prisma.room.findUnique({
       where: { roomCode },
-      include: {
-        players: { orderBy: [{ turnOrder: 'asc' }, { joinedAt: 'asc' }] },
-        gameLogs: { orderBy: { createdAt: 'asc' } },
-      },
+      include: this.roomInclude(),
     });
 
     if (!room) {
@@ -60,6 +78,14 @@ export class RoomsService {
     }
 
     return room;
+  }
+
+  private getActiveQuestion(room: any) {
+    if (!room.activeQuestionId) {
+      return null;
+    }
+
+    return room.questions.find((question: any) => question.id === room.activeQuestionId) ?? null;
   }
 
   private assignTopicsWithoutSelf(players: any[]) {
@@ -125,6 +151,7 @@ export class RoomsService {
         turnLimit: Number(dto.turnLimit),
         currentTurn: 0,
         currentPlayerIndex: 0,
+        phase: 'waiting',
         hasPassword: dto.hasPassword,
         passwordHash,
         status: 'waiting',
@@ -136,10 +163,7 @@ export class RoomsService {
           },
         },
       },
-      include: {
-        players: { orderBy: { joinedAt: 'asc' } },
-        gameLogs: { orderBy: { createdAt: 'asc' } },
-      },
+      include: this.roomInclude(),
     });
 
     return this.toSafeRoom(room);
@@ -214,7 +238,7 @@ export class RoomsService {
       throw new BadRequestException('ゲーム開始後はお題を変更できません。');
     }
 
-    const player = room.players.find((item) => item.id === Number(dto.playerId));
+    const player = room.players.find((item: any) => item.id === Number(dto.playerId));
 
     if (!player) {
       throw new BadRequestException('プレイヤーが見つかりません。');
@@ -222,9 +246,7 @@ export class RoomsService {
 
     await this.prisma.roomPlayer.update({
       where: { id: player.id },
-      data: {
-        submittedTopic: dto.topic.trim(),
-      },
+      data: { submittedTopic: dto.topic.trim() },
     });
 
     return this.getRoom(roomCode);
@@ -254,16 +276,14 @@ export class RoomsService {
       assignedPlayers.map((player) =>
         this.prisma.roomPlayer.update({
           where: { id: player.playerId },
-          data: {
-            assignedTopic: player.assignedTopic,
-            turnOrder: player.turnOrder,
-          },
+          data: { assignedTopic: player.assignedTopic, turnOrder: player.turnOrder },
         }),
       ),
     );
 
     const firstPlayer = assignedPlayers[0];
     const firstPlayerEntity = room.players.find((player) => player.id === firstPlayer.playerId);
+    const now = new Date();
 
     await this.prisma.gameLog.create({
       data: {
@@ -291,17 +311,18 @@ export class RoomsService {
       where: { roomCode },
       data: {
         status: 'playing',
+        phase: 'action',
         currentTurn: 1,
         currentPlayerIndex: 0,
-        turnStartedAt: new Date(),
+        turnStartedAt: now,
+        phaseStartedAt: now,
+        phaseEndsAt: this.addSeconds(ACTION_SECONDS),
+        activeQuestionId: null,
         winnerPlayerId: null,
         winnerName: null,
         correctTopic: null,
       },
-      include: {
-        players: { orderBy: [{ turnOrder: 'asc' }, { joinedAt: 'asc' }] },
-        gameLogs: { orderBy: { createdAt: 'asc' } },
-      },
+      include: this.roomInclude(),
     });
 
     return this.toSafeRoom(updatedRoom);
@@ -320,6 +341,10 @@ export class RoomsService {
 
     if (room.status !== 'playing') {
       throw new BadRequestException('ゲーム中ではありません。');
+    }
+
+    if (room.phase !== 'action') {
+      throw new BadRequestException('現在は質問または解答を選択するタイミングではありません。');
     }
 
     const currentPlayer = room.players[room.currentPlayerIndex];
@@ -343,52 +368,206 @@ export class RoomsService {
       },
     });
 
-    if (dto.actionType === 'guess') {
-      const assignedTopic = currentPlayer.assignedTopic ?? '';
-      const isCorrect = this.normalizeAnswer(dto.content) === this.normalizeAnswer(assignedTopic);
+    if (dto.actionType === 'question') {
+      const answerDeadlineAt = this.addSeconds(ANSWER_SECONDS);
+      const question = await this.prisma.gameQuestion.create({
+        data: {
+          roomId: room.id,
+          playerId: currentPlayer.id,
+          playerName: currentPlayer.playerName,
+          questionText: dto.content.trim(),
+          turnNumber: room.currentTurn,
+          status: 'answering',
+          answerDeadlineAt,
+        },
+      });
 
-      if (isCorrect) {
-        await this.prisma.gameLog.create({
-          data: {
-            roomId: room.id,
-            playerId: currentPlayer.id,
-            playerName: 'システム',
-            actionType: 'system',
-            content: `${currentPlayer.playerName}さんが正解しました。正解は「${assignedTopic}」です。`,
-            turnNumber: room.currentTurn,
-          },
-        });
+      const updatedRoom = await this.prisma.room.update({
+        where: { roomCode },
+        data: {
+          phase: 'answering',
+          phaseStartedAt: new Date(),
+          phaseEndsAt: answerDeadlineAt,
+          activeQuestionId: question.id,
+        },
+        include: this.roomInclude(),
+      });
 
-        const finishedRoom = await this.prisma.room.update({
-          where: { roomCode },
-          data: {
-            status: 'finished',
-            winnerPlayerId: currentPlayer.id,
-            winnerName: currentPlayer.playerName,
-            correctTopic: assignedTopic,
-          },
-          include: {
-            players: { orderBy: [{ turnOrder: 'asc' }, { joinedAt: 'asc' }] },
-            gameLogs: { orderBy: { createdAt: 'asc' } },
-          },
-        });
+      return this.toSafeRoom(updatedRoom);
+    }
 
-        return this.toSafeRoom(finishedRoom);
-      }
+    const assignedTopic = currentPlayer.assignedTopic ?? '';
+    const isCorrect = this.normalizeAnswer(dto.content) === this.normalizeAnswer(assignedTopic);
 
+    if (isCorrect) {
       await this.prisma.gameLog.create({
         data: {
           roomId: room.id,
           playerId: currentPlayer.id,
           playerName: 'システム',
           actionType: 'system',
-          content: `${currentPlayer.playerName}さんの解答は不正解でした。`,
+          content: `${currentPlayer.playerName}さんが正解しました。正解は「${assignedTopic}」です。`,
           turnNumber: room.currentTurn,
         },
       });
+
+      const finishedRoom = await this.prisma.room.update({
+        where: { roomCode },
+        data: {
+          status: 'finished',
+          phase: 'finished',
+          winnerPlayerId: currentPlayer.id,
+          winnerName: currentPlayer.playerName,
+          correctTopic: assignedTopic,
+          phaseEndsAt: null,
+        },
+        include: this.roomInclude(),
+      });
+
+      return this.toSafeRoom(finishedRoom);
     }
 
+    await this.prisma.gameLog.create({
+      data: {
+        roomId: room.id,
+        playerId: currentPlayer.id,
+        playerName: 'システム',
+        actionType: 'system',
+        content: `${currentPlayer.playerName}さんの解答は不正解でした。`,
+        turnNumber: room.currentTurn,
+      },
+    });
+
     return this.advanceTurn(roomCode, { playerId: dto.playerId, reason: 'action' });
+  }
+
+  async answerQuestion(roomCode: string, questionId: number, dto: QuestionAnswerDto) {
+    if (!['yes', 'no', 'unknown'].includes(dto.answerKbn)) {
+      throw new BadRequestException('回答が不正です。');
+    }
+
+    const room = await this.getRoomEntity(roomCode);
+
+    if (room.status !== 'playing' || room.phase !== 'answering') {
+      throw new BadRequestException('現在は回答受付中ではありません。');
+    }
+
+    const activeQuestion = this.getActiveQuestion(room);
+
+    if (!activeQuestion || activeQuestion.id !== questionId) {
+      throw new BadRequestException('現在の質問が見つかりません。');
+    }
+
+    const answerPlayer = room.players.find((player: any) => player.id === Number(dto.playerId));
+
+    if (!answerPlayer) {
+      throw new BadRequestException('プレイヤーが見つかりません。');
+    }
+
+    if (answerPlayer.id === activeQuestion.playerId) {
+      throw new BadRequestException('質問者は回答できません。');
+    }
+
+    await this.prisma.gameQuestionAnswer.upsert({
+      where: {
+        questionId_playerId: {
+          questionId: activeQuestion.id,
+          playerId: answerPlayer.id,
+        },
+      },
+      update: { answerKbn: dto.answerKbn, playerName: answerPlayer.playerName },
+      create: {
+        questionId: activeQuestion.id,
+        playerId: answerPlayer.id,
+        playerName: answerPlayer.playerName,
+        answerKbn: dto.answerKbn,
+      },
+    });
+
+    const latestRoom = await this.getRoomEntity(roomCode);
+    const latestQuestion = this.getActiveQuestion(latestRoom);
+
+    if (!latestQuestion) {
+      return this.toSafeRoom(latestRoom);
+    }
+
+    const targetPlayerIds = latestRoom.players
+      .filter((player: any) => player.id !== latestQuestion.playerId)
+      .map((player: any) => player.id);
+    const answeredPlayerIds = latestQuestion.answers.map((answer: any) => answer.playerId);
+    const allAnswered = targetPlayerIds.every((playerId: number) => answeredPlayerIds.includes(playerId));
+
+    if (allAnswered) {
+      return this.revealQuestionResult(roomCode, latestQuestion.id, 'all_answered');
+    }
+
+    return this.getRoom(roomCode);
+  }
+
+  private async revealQuestionResult(roomCode: string, questionId: number, reason: 'all_answered' | 'timeout') {
+    const room = await this.getRoomEntity(roomCode);
+    const question = room.questions.find((item: any) => item.id === questionId);
+
+    if (!question || question.status !== 'answering') {
+      return this.toSafeRoom(room);
+    }
+
+    const resultDeadlineAt = this.addSeconds(RESULT_SECONDS);
+
+    await this.prisma.gameQuestion.update({
+      where: { id: question.id },
+      data: { status: 'result', resultDeadlineAt },
+    });
+
+    await this.prisma.gameLog.create({
+      data: {
+        roomId: room.id,
+        playerId: question.playerId,
+        playerName: 'システム',
+        actionType: 'system',
+        content: reason === 'timeout' ? '回答時間が終了しました。回答結果を表示します。' : '全員の回答が出そろいました。回答結果を表示します。',
+        turnNumber: room.currentTurn,
+      },
+    });
+
+    const updatedRoom = await this.prisma.room.update({
+      where: { roomCode },
+      data: {
+        phase: 'result',
+        phaseStartedAt: new Date(),
+        phaseEndsAt: resultDeadlineAt,
+      },
+      include: this.roomInclude(),
+    });
+
+    return this.toSafeRoom(updatedRoom);
+  }
+
+  async advancePhase(roomCode: string, dto: AdvancePhaseDto) {
+    const room = await this.getRoomEntity(roomCode);
+
+    if (room.status !== 'playing') {
+      return this.toSafeRoom(room);
+    }
+
+    const activeQuestion = this.getActiveQuestion(room);
+
+    if (room.phase === 'answering' && activeQuestion) {
+      return this.revealQuestionResult(roomCode, activeQuestion.id, 'timeout');
+    }
+
+    if (room.phase === 'result') {
+      if (activeQuestion) {
+        await this.prisma.gameQuestion.update({
+          where: { id: activeQuestion.id },
+          data: { status: 'closed' },
+        });
+      }
+
+      return this.advanceTurn(roomCode, { playerId: dto.playerId, reason: 'action' });
+    }
+
+    return this.toSafeRoom(room);
   }
 
   async advanceTurn(roomCode: string, dto: AdvanceTurnDto) {
@@ -420,14 +599,8 @@ export class RoomsService {
 
       const finishedRoom = await this.prisma.room.update({
         where: { roomCode },
-        data: {
-          status: 'finished',
-          currentTurn: room.turnLimit,
-        },
-        include: {
-          players: { orderBy: [{ turnOrder: 'asc' }, { joinedAt: 'asc' }] },
-          gameLogs: { orderBy: { createdAt: 'asc' } },
-        },
+        data: { status: 'finished', phase: 'finished', currentTurn: room.turnLimit, phaseEndsAt: null, activeQuestionId: null },
+        include: this.roomInclude(),
       });
 
       return this.toSafeRoom(finishedRoom);
@@ -441,25 +614,25 @@ export class RoomsService {
         playerId: nextPlayer.id,
         playerName: 'システム',
         actionType: 'system',
-        content:
-          dto.reason === 'timeout'
-            ? `${room.players[room.currentPlayerIndex]?.playerName ?? 'プレイヤー'}さんの時間切れです。次の手番に移ります。`
-            : `${nextPlayer.playerName}さんの手番です。`,
+        content: dto.reason === 'timeout' ? `${room.players[room.currentPlayerIndex]?.playerName ?? 'プレイヤー'}さんの時間切れです。次の手番に移ります。` : `${nextPlayer.playerName}さんの手番です。`,
         turnNumber: nextTurn,
       },
     });
 
+    const now = new Date();
+
     const updatedRoom = await this.prisma.room.update({
       where: { roomCode },
       data: {
+        phase: 'action',
         currentTurn: nextTurn,
         currentPlayerIndex: nextPlayerIndex,
-        turnStartedAt: new Date(),
+        turnStartedAt: now,
+        phaseStartedAt: now,
+        phaseEndsAt: this.addSeconds(ACTION_SECONDS),
+        activeQuestionId: null,
       },
-      include: {
-        players: { orderBy: [{ turnOrder: 'asc' }, { joinedAt: 'asc' }] },
-        gameLogs: { orderBy: { createdAt: 'asc' } },
-      },
+      include: this.roomInclude(),
     });
 
     return this.toSafeRoom(updatedRoom);
