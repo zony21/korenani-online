@@ -1,8 +1,10 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { AdvancePhaseDto } from './dto/advance-phase.dto';
 import { AdvanceTurnDto } from './dto/advance-turn.dto';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { GameActionDto } from './dto/game-action.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
+import { QuestionAnswerDto } from './dto/question-answer.dto';
 import { SubmitTopicDto } from './dto/submit-topic.dto';
 import { RoomsGateway } from './rooms.gateway';
 import { RoomsService } from './rooms.service';
@@ -50,6 +52,24 @@ export class RoomsController {
   @Post(':roomCode/action')
   async createAction(@Param('roomCode') roomCode: string, @Body() dto: GameActionDto) {
     const room = await this.roomsService.createAction(roomCode, dto);
+    this.roomsGateway.notifyGameUpdated(roomCode, room);
+    return room;
+  }
+
+  @Post(':roomCode/question/:questionId/answer')
+  async answerQuestion(
+    @Param('roomCode') roomCode: string,
+    @Param('questionId') questionId: string,
+    @Body() dto: QuestionAnswerDto,
+  ) {
+    const room = await this.roomsService.answerQuestion(roomCode, Number(questionId), dto);
+    this.roomsGateway.notifyGameUpdated(roomCode, room);
+    return room;
+  }
+
+  @Post(':roomCode/advance-phase')
+  async advancePhase(@Param('roomCode') roomCode: string, @Body() dto: AdvancePhaseDto) {
+    const room = await this.roomsService.advancePhase(roomCode, dto);
     this.roomsGateway.notifyGameUpdated(roomCode, room);
     return room;
   }
