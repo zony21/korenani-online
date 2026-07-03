@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { GameLog, GameQuestion } from '../types/room';
 
 const props = defineProps<{
@@ -7,8 +8,13 @@ const props = defineProps<{
   gameLogs: GameLog[];
 }>();
 
-const answerCount = props.questions.reduce((total, question) => total + question.answers.length, 0);
-const guessCount = props.gameLogs.filter((log) => log.actionType === 'guess').length;
+const answerCount = computed(() => {
+  return props.questions.reduce((total, question) => total + question.answers.length, 0);
+});
+
+const guessCount = computed(() => {
+  return props.gameLogs.filter((log) => log.actionType === 'guess').length;
+});
 </script>
 
 <template>
@@ -19,3 +25,38 @@ const guessCount = props.gameLogs.filter((log) => log.actionType === 'guess').le
     <div><strong>{{ guessCount }}</strong><span>解答数</span></div>
   </div>
 </template>
+
+<style scoped>
+.result-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.result-summary-grid div {
+  padding: 14px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #dbeafe;
+}
+
+.result-summary-grid strong {
+  display: block;
+  font-size: 26px;
+  color: #2563eb;
+}
+
+.result-summary-grid span {
+  display: block;
+  margin-top: 4px;
+  color: #475569;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .result-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+</style>
