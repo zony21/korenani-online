@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { AdvancePhaseDto } from './dto/advance-phase.dto';
 import { AdvanceTurnDto } from './dto/advance-turn.dto';
+import { CloseRoomDto } from './dto/close-room.dto';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { GameActionDto } from './dto/game-action.dto';
 import { JoinRoomDto } from './dto/join-room.dto';
 import { QuestionAnswerDto } from './dto/question-answer.dto';
+import { RestartRoomDto } from './dto/restart-room.dto';
 import { SubmitTopicDto } from './dto/submit-topic.dto';
 import { RoomsGateway } from './rooms.gateway';
 import { RoomsService } from './rooms.service';
@@ -77,6 +79,21 @@ export class RoomsController {
   @Post(':roomCode/advance-turn')
   async advanceTurn(@Param('roomCode') roomCode: string, @Body() dto: AdvanceTurnDto) {
     const room = await this.roomsService.advanceTurn(roomCode, dto);
+    this.roomsGateway.notifyGameUpdated(roomCode, room);
+    return room;
+  }
+
+  @Post(':roomCode/restart')
+  async restartRoom(@Param('roomCode') roomCode: string, @Body() dto: RestartRoomDto) {
+    const room = await this.roomsService.restartRoom(roomCode, dto);
+    this.roomsGateway.notifyPlayersUpdated(roomCode, room.players);
+    this.roomsGateway.notifyGameUpdated(roomCode, room);
+    return room;
+  }
+
+  @Post(':roomCode/close')
+  async closeRoom(@Param('roomCode') roomCode: string, @Body() dto: CloseRoomDto) {
+    const room = await this.roomsService.closeRoom(roomCode, dto);
     this.roomsGateway.notifyGameUpdated(roomCode, room);
     return room;
   }
