@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { advancePhase, advanceTurn, answerQuestion, closeRoom, createGameAction, getRoom, restartRoom } from '../api/roomApi';
+import GameResultSummary from '../components/GameResultSummary.vue';
+import QuestionHistoryPanel from '../components/QuestionHistoryPanel.vue';
 import { socket } from '../socket/socket';
 import type { GameQuestion, Room } from '../types/room';
 
@@ -88,6 +90,9 @@ const topicDisplayPlayers = computed(() => {
     isMine: player.id === myPlayerId.value,
   }));
 });
+
+const questions = computed(() => room.value?.questions ?? []);
+const gameLogs = computed(() => room.value?.gameLogs ?? []);
 
 const phaseLabel = computed(() => {
   if (room.value?.status === 'closed') {
@@ -290,6 +295,13 @@ onBeforeUnmount(() => {
               <p>ターン上限に達しました。</p>
             </template>
 
+            <GameResultSummary
+              v-if="room"
+              :current-turn="room.currentTurn"
+              :questions="questions"
+              :game-logs="gameLogs"
+            />
+
             <div v-if="room?.status === 'finished' && isHost" style="display: grid; gap: 12px; margin-top: 18px;">
               <button class="primary-button" type="button" @click="onRestartSameTheme">同じテーマで次のゲーム</button>
               <input v-model="restartThemeText" type="text" placeholder="新しいテーマ" />
@@ -338,6 +350,8 @@ onBeforeUnmount(() => {
             </div>
             <div class="hint-box">1分後に次のプレイヤーへ移ります。</div>
           </div>
+
+          <QuestionHistoryPanel :questions="questions" />
 
           <div class="log-panel">
             <h2>ゲームログ</h2>
