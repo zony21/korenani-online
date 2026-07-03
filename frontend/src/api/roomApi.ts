@@ -45,6 +45,16 @@ export interface AdvanceTurnRequest {
   reason?: 'action' | 'timeout' | 'manual';
 }
 
+export interface RestartRoomRequest {
+  playerId: number;
+  restartMode: 'same_theme' | 'change_theme';
+  themeText?: string;
+}
+
+export interface CloseRoomRequest {
+  playerId: number;
+}
+
 export const createRoom = async (request: CreateRoomRequest): Promise<Room> => {
   const response = await api.post<Room>('/rooms', request);
   return response.data;
@@ -103,5 +113,21 @@ export const advanceTurn = async (
   request: AdvanceTurnRequest,
 ): Promise<Room> => {
   const response = await api.post<Room>(`/rooms/${roomCode}/advance-turn`, request);
+  return response.data;
+};
+
+export const restartRoom = async (
+  roomCode: string,
+  request: RestartRoomRequest,
+): Promise<Room> => {
+  const response = await api.post<Room>(`/rooms/${roomCode}/restart`, request);
+  return response.data;
+};
+
+export const closeRoom = async (
+  roomCode: string,
+  request: CloseRoomRequest,
+): Promise<Room> => {
+  const response = await api.post<Room>(`/rooms/${roomCode}/close`, request);
   return response.data;
 };
