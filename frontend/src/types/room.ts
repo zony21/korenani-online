@@ -15,10 +15,33 @@ export interface GameLog {
   roomId: number;
   playerId: number;
   playerName: string;
-  actionType: 'question' | 'guess' | 'system';
+  actionType: string;
   content: string;
   turnNumber: number;
   createdAt: string;
+}
+
+export interface GameQuestionAnswer {
+  id: number;
+  questionId: number;
+  playerId: number;
+  playerName: string;
+  answerKbn: string;
+  createdAt: string;
+}
+
+export interface GameQuestion {
+  id: number;
+  roomId: number;
+  playerId: number;
+  playerName: string;
+  questionText: string;
+  turnNumber: number;
+  status: string;
+  startedAt: string;
+  answerDeadlineAt: string;
+  resultDeadlineAt?: string | null;
+  answers: GameQuestionAnswer[];
 }
 
 export interface Room {
@@ -30,6 +53,10 @@ export interface Room {
   currentTurn: number;
   currentPlayerIndex: number;
   turnStartedAt?: string | null;
+  phase?: string;
+  phaseStartedAt?: string | null;
+  phaseEndsAt?: string | null;
+  activeQuestionId?: number | null;
   hasPassword: boolean;
   status: string;
   winnerPlayerId?: number | null;
@@ -37,4 +64,5 @@ export interface Room {
   correctTopic?: string | null;
   players: RoomPlayer[];
   gameLogs: GameLog[];
+  questions?: GameQuestion[];
 }
