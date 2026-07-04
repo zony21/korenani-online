@@ -58,6 +58,20 @@ export class RoomsService {
     };
   }
 
+  private getTurnPlayers(players: any[]) {
+    return [...players].sort((a, b) => {
+      const orderA = a.turnOrder ?? Number.MAX_SAFE_INTEGER;
+      const orderB = b.turnOrder ?? Number.MAX_SAFE_INTEGER;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime();
+    });
+  }
+
+  private getCurrentTurnPlayer(room: any) {
+    const turnPlayers = this.getTurnPlayers(room.players);
+    return turnPlayers.find((player) => player.turnOrder === room.currentPlayerIndex) ?? turnPlayers[room.currentPlayerIndex] ?? null;
+  }
+
   private async getRoomEntity(roomCode: string) {
     const room = await this.prisma.room.findUnique({ where: { roomCode }, include: this.roomInclude() });
     if (!room) {
@@ -189,7 +203,7 @@ export class RoomsService {
     const room = await this.getRoomEntity(roomCode);
     if (room.status !== 'playing') throw new BadRequestException('ゲーム中ではありません。');
     if (room.phase !== 'action') throw new BadRequestException('現在は質問または解答を選択するタイミングではありません。');
-    const currentPlayer = room.players[room.currentPlayerIndex];
+    const currentPlayer = this.getCurrentTurnPlayer(room);
     if (!currentPlayer) throw new BadRequestException('現在の手番プレイヤーが見つかりません。');
     if (Number(dto.playerId) !== currentPlayer.id) throw new BadRequestException('現在あなたの番ではありません。');
 
@@ -266,16 +280,19 @@ export class RoomsService {
   async advanceTurn(roomCode: string, dto: AdvanceTurnDto) {
     const room = await this.getRoomEntity(roomCode);
     if (room.status !== 'playing') return this.toSafeRoom(room);
-    if (room.players.length === 0) throw new BadRequestException('参加者が存在しません。');
-    const nextPlayerIndex = (room.currentPlayerIndex + 1) % room.players.length;
+    const turnPlayers = this.getTurnPlayers(room.players);
+    if (turnPlayers.length === 0) throw new BadRequestException('参加者が存在しません。');
+    const currentPlayer = this.getCurrentTurnPlayer(room);
+    const currentOrder = currentPlayer?.turnOrder ?? room.currentPlayerIndex;
+    const nextPlayerIndex = (currentOrder + 1) % turnPlayers.length;
     const nextTurn = room.currentTurn + 1;
     if (nextTurn > room.turnLimit) {
       await this.prisma.gameLog.create({ data: { roomId: room.id, playerId: dto.playerId ?? 0, playerName: 'システム', actionType: 'system', content: 'ターン上限に達したためゲームを終了しました。', turnNumber: room.turnLimit } });
       const finishedRoom = await this.prisma.room.update({ where: { roomCode }, data: { status: 'finished', phase: 'finished', currentTurn: room.turnLimit, phaseEndsAt: null, activeQuestionId: null }, include: this.roomInclude() });
       return this.toSafeRoom(finishedRoom);
     }
-    const nextPlayer = room.players[nextPlayerIndex];
-    await this.prisma.gameLog.create({ data: { roomId: room.id, playerId: nextPlayer.id, playerName: 'システム', actionType: 'system', content: dto.reason === 'timeout' ? `${room.players[room.currentPlayerIndex]?.playerName ?? 'プレイヤー'}さんの時間切れです。次の手番に移ります。` : `${nextPlayer.playerName}さんの手番です。`, turnNumber: nextTurn } });
+    const nextPlayer = turnPlayers.find((player) => player.turnOrder === nextPlayerIndex) ?? turnPlayers[nextPlayerIndex];
+    await this.prisma.gameLog.create({ data: { roomId: room.id, playerId: nextPlayer.id, playerName: 'システム', actionType: 'system', content: dto.reason === 'timeout' ? `${currentPlayer?.playerName ?? 'プレイヤー'}さんの時間切れです。次の手番に移ります。` : `${nextPlayer.playerName}さんの手番です。`, turnNumber: nextTurn } });
     const now = new Date();
     const updatedRoom = await this.prisma.room.update({ where: { roomCode }, data: { phase: 'action', currentTurn: nextTurn, currentPlayerIndex: nextPlayerIndex, turnStartedAt: now, phaseStartedAt: now, phaseEndsAt: this.addSeconds(ACTION_SECONDS), activeQuestionId: null }, include: this.roomInclude() });
     return this.toSafeRoom(updatedRoom);
