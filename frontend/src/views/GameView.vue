@@ -6,7 +6,7 @@ import GameResultSummary from '../components/GameResultSummary.vue';
 import QuestionHistoryPanel from '../components/QuestionHistoryPanel.vue';
 import { GAME_VALIDATION } from '../constants/gameValidation';
 import { socket } from '../socket/socket';
-import type { GameQuestion, Room } from '../types/room';
+import type { GameQuestion, Room, RoomPlayer } from '../types/room';
 
 const DEFAULT_SECONDS = 180;
 
@@ -30,12 +30,22 @@ const myPlayerId = computed(() => {
   return value ? Number(value) : null;
 });
 
+const sortPlayersByTurn = (players: RoomPlayer[]) => {
+  return [...players].sort((a, b) => {
+    const orderA = a.turnOrder ?? Number.MAX_SAFE_INTEGER;
+    const orderB = b.turnOrder ?? Number.MAX_SAFE_INTEGER;
+    if (orderA !== orderB) return orderA - orderB;
+    return new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime();
+  });
+};
+
 const myPlayer = computed(() => room.value?.players.find((player) => player.id === myPlayerId.value) ?? null);
 const isHost = computed(() => myPlayer.value?.isHost === true);
+const sortedPlayers = computed(() => sortPlayersByTurn(room.value?.players ?? []));
 
 const currentPlayer = computed(() => {
   if (!room.value) return null;
-  return room.value.players[room.value.currentPlayerIndex] ?? null;
+  return sortedPlayers.value.find((player) => player.turnOrder === room.value?.currentPlayerIndex) ?? sortedPlayers.value[room.value.currentPlayerIndex] ?? null;
 });
 
 const activeQuestion = computed<GameQuestion | null>(() => {
@@ -49,7 +59,7 @@ const myAnswer = computed(() => activeQuestion.value?.answers.find((answer) => a
 
 const answerTargetPlayers = computed(() => {
   if (!activeQuestion.value || !room.value) return [];
-  return room.value.players.filter((player) => player.id !== activeQuestion.value?.playerId);
+  return sortedPlayers.value.filter((player) => player.id !== activeQuestion.value?.playerId);
 });
 
 const remainingSeconds = computed(() => {
@@ -63,8 +73,6 @@ const remainingTimeText = computed(() => {
   const seconds = remainingSeconds.value % 60;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 });
-
-const sortedPlayers = computed(() => [...(room.value?.players ?? [])].sort((a, b) => (a.turnOrder ?? 999) - (b.turnOrder ?? 999)));
 
 const topicDisplayPlayers = computed(() => {
   return sortedPlayers.value.map((player) => ({
