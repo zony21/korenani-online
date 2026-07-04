@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { advancePhase, advanceTurn, answerQuestion, closeRoom, createGameAction, getRoom, restartRoom } from '../api/roomApi';
 import GameResultSummary from '../components/GameResultSummary.vue';
 import QuestionHistoryPanel from '../components/QuestionHistoryPanel.vue';
+import { GAME_VALIDATION } from '../constants/gameValidation';
 import { socket } from '../socket/socket';
 import type { GameQuestion, Room } from '../types/room';
 
@@ -20,6 +21,7 @@ const actionText = ref('');
 const restartThemeText = ref('');
 const now = ref(Date.now());
 const isAutoAdvancing = ref(false);
+const isSubmitting = ref(false);
 
 let timerId: number | undefined;
 
@@ -28,47 +30,30 @@ const myPlayerId = computed(() => {
   return value ? Number(value) : null;
 });
 
-const myPlayer = computed(() => {
-  return room.value?.players.find((player) => player.id === myPlayerId.value) ?? null;
-});
-
+const myPlayer = computed(() => room.value?.players.find((player) => player.id === myPlayerId.value) ?? null);
 const isHost = computed(() => myPlayer.value?.isHost === true);
 
 const currentPlayer = computed(() => {
-  if (!room.value) {
-    return null;
-  }
+  if (!room.value) return null;
   return room.value.players[room.value.currentPlayerIndex] ?? null;
 });
 
 const activeQuestion = computed<GameQuestion | null>(() => {
-  if (!room.value?.activeQuestionId) {
-    return null;
-  }
+  if (!room.value?.activeQuestionId) return null;
   return room.value.questions?.find((question) => question.id === room.value?.activeQuestionId) ?? null;
 });
 
-const isMyTurn = computed(() => {
-  return currentPlayer.value?.id === myPlayerId.value && (room.value?.phase ?? 'action') === 'action';
-});
-
+const isMyTurn = computed(() => currentPlayer.value?.id === myPlayerId.value && (room.value?.phase ?? 'action') === 'action');
 const amIQuestioner = computed(() => activeQuestion.value?.playerId === myPlayerId.value);
-
-const myAnswer = computed(() => {
-  return activeQuestion.value?.answers.find((answer) => answer.playerId === myPlayerId.value) ?? null;
-});
+const myAnswer = computed(() => activeQuestion.value?.answers.find((answer) => answer.playerId === myPlayerId.value) ?? null);
 
 const answerTargetPlayers = computed(() => {
-  if (!activeQuestion.value || !room.value) {
-    return [];
-  }
+  if (!activeQuestion.value || !room.value) return [];
   return room.value.players.filter((player) => player.id !== activeQuestion.value?.playerId);
 });
 
 const remainingSeconds = computed(() => {
-  if (!room.value?.phaseEndsAt || room.value.status !== 'playing') {
-    return DEFAULT_SECONDS;
-  }
+  if (!room.value?.phaseEndsAt || room.value.status !== 'playing') return DEFAULT_SECONDS;
   const endsAt = new Date(room.value.phaseEndsAt).getTime();
   return Math.max(Math.ceil((endsAt - now.value) / 1000), 0);
 });
@@ -79,9 +64,7 @@ const remainingTimeText = computed(() => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 });
 
-const sortedPlayers = computed(() => {
-  return [...(room.value?.players ?? [])].sort((a, b) => (a.turnOrder ?? 999) - (b.turnOrder ?? 999));
-});
+const sortedPlayers = computed(() => [...(room.value?.players ?? [])].sort((a, b) => (a.turnOrder ?? 999) - (b.turnOrder ?? 999)));
 
 const topicDisplayPlayers = computed(() => {
   return sortedPlayers.value.map((player) => ({
@@ -93,22 +76,16 @@ const topicDisplayPlayers = computed(() => {
 
 const questions = computed(() => room.value?.questions ?? []);
 const gameLogs = computed(() => room.value?.gameLogs ?? []);
+const actionMaxLength = computed(() => actionType.value === 'question' ? GAME_VALIDATION.QUESTION_MAX_LENGTH : GAME_VALIDATION.GUESS_MAX_LENGTH);
 
 const phaseLabel = computed(() => {
-  if (room.value?.status === 'closed') {
-    return '部屋終了';
-  }
+  if (room.value?.status === 'closed') return '部屋終了';
   switch (room.value?.phase ?? 'action') {
-    case 'action':
-      return '質問または解答を選択';
-    case 'answering':
-      return '他プレイヤー回答待ち';
-    case 'result':
-      return '回答結果確認';
-    case 'finished':
-      return 'ゲーム終了';
-    default:
-      return '待機中';
+    case 'action': return '質問または解答を選択';
+    case 'answering': return '他プレイヤー回答待ち';
+    case 'result': return '回答結果確認';
+    case 'finished': return 'ゲーム終了';
+    default: return '待機中';
   }
 });
 
@@ -125,11 +102,17 @@ const loadRoom = async () => {
 
 const onSubmitAction = async () => {
   errorMessage.value = '';
+  if (isSubmitting.value) return;
   if (!myPlayerId.value) {
     errorMessage.value = 'プレイヤー情報が見つかりません。入室し直してください。';
     return;
   }
+  if (actionText.value.trim().length > actionMaxLength.value) {
+    errorMessage.value = `${actionType.value === 'question' ? '質問' : '解答'}は${actionMaxLength.value}文字以内で入力してください。`;
+    return;
+  }
   try {
+    isSubmitting.value = true;
     room.value = await createGameAction(roomCode, {
       playerId: myPlayerId.value,
       actionType: actionType.value,
@@ -138,11 +121,14 @@ const onSubmitAction = async () => {
     actionText.value = '';
   } catch (error: any) {
     errorMessage.value = error.response?.data?.message ?? '行動の送信に失敗しました。';
+  } finally {
+    isSubmitting.value = false;
   }
 };
 
 const onSubmitAnswer = async (answerKbn: 'yes' | 'no' | 'unknown') => {
   errorMessage.value = '';
+  if (isSubmitting.value) return;
   if (!myPlayerId.value) {
     errorMessage.value = 'プレイヤー情報が見つかりません。入室し直してください。';
     return;
@@ -152,27 +138,38 @@ const onSubmitAnswer = async (answerKbn: 'yes' | 'no' | 'unknown') => {
     return;
   }
   try {
+    isSubmitting.value = true;
     room.value = await answerQuestion(roomCode, activeQuestion.value.id, { playerId: myPlayerId.value, answerKbn });
   } catch (error: any) {
     errorMessage.value = error.response?.data?.message ?? '回答に失敗しました。';
+  } finally {
+    isSubmitting.value = false;
   }
 };
 
 const onRestartSameTheme = async () => {
   errorMessage.value = '';
-  if (!myPlayerId.value) return;
+  if (!myPlayerId.value || isSubmitting.value) return;
   try {
+    isSubmitting.value = true;
     room.value = await restartRoom(roomCode, { playerId: myPlayerId.value, restartMode: 'same_theme' });
     router.push(`/room/${roomCode}`);
   } catch (error: any) {
     errorMessage.value = error.response?.data?.message ?? '再戦開始に失敗しました。';
+  } finally {
+    isSubmitting.value = false;
   }
 };
 
 const onRestartChangeTheme = async () => {
   errorMessage.value = '';
-  if (!myPlayerId.value) return;
+  if (!myPlayerId.value || isSubmitting.value) return;
+  if (restartThemeText.value.trim().length > GAME_VALIDATION.THEME_MAX_LENGTH) {
+    errorMessage.value = `テーマは${GAME_VALIDATION.THEME_MAX_LENGTH}文字以内で入力してください。`;
+    return;
+  }
   try {
+    isSubmitting.value = true;
     room.value = await restartRoom(roomCode, {
       playerId: myPlayerId.value,
       restartMode: 'change_theme',
@@ -181,16 +178,21 @@ const onRestartChangeTheme = async () => {
     router.push(`/room/${roomCode}`);
   } catch (error: any) {
     errorMessage.value = error.response?.data?.message ?? 'テーマ変更再戦に失敗しました。';
+  } finally {
+    isSubmitting.value = false;
   }
 };
 
 const onCloseRoom = async () => {
   errorMessage.value = '';
-  if (!myPlayerId.value) return;
+  if (!myPlayerId.value || isSubmitting.value) return;
   try {
+    isSubmitting.value = true;
     room.value = await closeRoom(roomCode, { playerId: myPlayerId.value });
   } catch (error: any) {
     errorMessage.value = error.response?.data?.message ?? '部屋の終了に失敗しました。';
+  } finally {
+    isSubmitting.value = false;
   }
 };
 
@@ -295,18 +297,13 @@ onBeforeUnmount(() => {
               <p>ターン上限に達しました。</p>
             </template>
 
-            <GameResultSummary
-              v-if="room"
-              :current-turn="room.currentTurn"
-              :questions="questions"
-              :game-logs="gameLogs"
-            />
+            <GameResultSummary v-if="room" :current-turn="room.currentTurn" :questions="questions" :game-logs="gameLogs" />
 
             <div v-if="room?.status === 'finished' && isHost" style="display: grid; gap: 12px; margin-top: 18px;">
-              <button class="primary-button" type="button" @click="onRestartSameTheme">同じテーマで次のゲーム</button>
-              <input v-model="restartThemeText" type="text" placeholder="新しいテーマ" />
-              <button class="secondary-button" type="button" :disabled="!restartThemeText.trim()" @click="onRestartChangeTheme">テーマを変えて次のゲーム</button>
-              <button class="danger-button" type="button" @click="onCloseRoom">部屋を閉じる</button>
+              <button class="primary-button" type="button" :disabled="isSubmitting" @click="onRestartSameTheme">同じテーマで次のゲーム</button>
+              <input v-model="restartThemeText" type="text" placeholder="新しいテーマ" :maxlength="GAME_VALIDATION.THEME_MAX_LENGTH" />
+              <button class="secondary-button" type="button" :disabled="isSubmitting || !restartThemeText.trim()" @click="onRestartChangeTheme">テーマを変えて次のゲーム</button>
+              <button class="danger-button" type="button" :disabled="isSubmitting" @click="onCloseRoom">部屋を閉じる</button>
             </div>
             <div v-else-if="room?.status === 'finished'" class="hint-box">ホストが次の操作を選択します。</div>
           </div>
@@ -317,8 +314,8 @@ onBeforeUnmount(() => {
               <button type="button" :class="{ active: actionType === 'guess' }" @click="actionType = 'guess'">解答する</button>
             </div>
             <div class="answer-row">
-              <input v-model="actionText" type="text" :placeholder="actionType === 'question' ? '質問を入力...' : '自分のお題だと思う答えを入力...'" :disabled="!isMyTurn" />
-              <button class="primary-button" type="button" :disabled="!isMyTurn || !actionText.trim()" @click="onSubmitAction">送信する</button>
+              <input v-model="actionText" type="text" :maxlength="actionMaxLength" :placeholder="actionType === 'question' ? '質問を入力...' : '自分のお題だと思う答えを入力...'" :disabled="!isMyTurn || isSubmitting" />
+              <button class="primary-button" type="button" :disabled="isSubmitting || !isMyTurn || !actionText.trim()" @click="onSubmitAction">{{ isSubmitting ? '送信中...' : '送信する' }}</button>
             </div>
             <div class="hint-box">
               <template v-if="isMyTurn">💡 あなたの番です。質問するか、自分のお題を解答してください。</template>
@@ -334,9 +331,9 @@ onBeforeUnmount(() => {
             <template v-else-if="myAnswer"><div class="hint-box">あなたの回答：{{ answerLabel(myAnswer.answerKbn) }}</div></template>
             <template v-else>
               <div class="answer-choice-grid">
-                <button class="answer-choice yes" type="button" @click="onSubmitAnswer('yes')">はい</button>
-                <button class="answer-choice no" type="button" @click="onSubmitAnswer('no')">いいえ</button>
-                <button class="answer-choice unknown" type="button" @click="onSubmitAnswer('unknown')">どちらともいえない</button>
+                <button class="answer-choice yes" type="button" :disabled="isSubmitting" @click="onSubmitAnswer('yes')">はい</button>
+                <button class="answer-choice no" type="button" :disabled="isSubmitting" @click="onSubmitAnswer('no')">いいえ</button>
+                <button class="answer-choice unknown" type="button" :disabled="isSubmitting" @click="onSubmitAnswer('unknown')">どちらともいえない</button>
               </div>
             </template>
           </div>
