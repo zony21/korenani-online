@@ -9,6 +9,7 @@ import { JoinRoomDto } from './dto/join-room.dto';
 import { QuestionAnswerDto } from './dto/question-answer.dto';
 import { RestartRoomDto } from './dto/restart-room.dto';
 import { SubmitTopicDto } from './dto/submit-topic.dto';
+import { GAME_VALIDATION } from './game-validation.constants';
 import * as bcrypt from 'bcrypt';
 
 const PLAYER_COLORS = ['#3B82F6', '#EF4444', '#22C55E', '#EAB308', '#A855F7', '#06B6D4', '#F97316', '#EC4899', '#92400E'];
@@ -36,9 +37,15 @@ export class RoomsService {
     return value.trim().replace(/\s+/g, '').toLowerCase();
   }
 
+  private validateTextLength(label: string, value: string | undefined | null, maxLength: number): void {
+    if ((value ?? '').trim().length > maxLength) {
+      throw new BadRequestException(`${label}は${maxLength}文字以内で入力してください。`);
+    }
+  }
+
   private validatePassword(password?: string): void {
     if (!password || !/^[a-zA-Z0-9]{5}$/.test(password)) {
-      throw new BadRequestException('パスワードは5桁の英数字で入力してください。');
+      throw new BadRequestException(`パスワードは${GAME_VALIDATION.PASSWORD_LENGTH}桁の英数字で入力してください。`);
     }
   }
 
@@ -115,6 +122,8 @@ export class RoomsService {
   async createRoom(dto: CreateRoomDto) {
     if (!dto.hostName?.trim()) throw new BadRequestException('作成者名を入力してください。');
     if (!dto.themeText?.trim()) throw new BadRequestException('テーマを入力してください。');
+    this.validateTextLength('作成者名', dto.hostName, GAME_VALIDATION.PLAYER_NAME_MAX_LENGTH);
+    this.validateTextLength('テーマ', dto.themeText, GAME_VALIDATION.THEME_MAX_LENGTH);
     if (![10, 20, 30].includes(Number(dto.turnLimit))) throw new BadRequestException('ターン上限は10、20、30から選択してください。');
 
     let passwordHash: string | null = null;
@@ -148,6 +157,7 @@ export class RoomsService {
 
   async joinRoom(roomCode: string, dto: JoinRoomDto) {
     if (!dto.playerName?.trim()) throw new BadRequestException('名前を入力してください。');
+    this.validateTextLength('名前', dto.playerName, GAME_VALIDATION.PLAYER_NAME_MAX_LENGTH);
     const room = await this.prisma.room.findUnique({ where: { roomCode }, include: { players: { orderBy: { joinedAt: 'asc' } } } });
     if (!room) throw new NotFoundException('ルームが見つかりません。');
     if (room.status !== 'waiting') throw new BadRequestException('ゲーム開始後は入室できません。');
@@ -166,6 +176,7 @@ export class RoomsService {
 
   async submitTopic(roomCode: string, dto: SubmitTopicDto) {
     if (!dto.topic?.trim()) throw new BadRequestException('お題を入力してください。');
+    this.validateTextLength('お題', dto.topic, GAME_VALIDATION.TOPIC_MAX_LENGTH);
     const room = await this.getRoomEntity(roomCode);
     if (room.status !== 'waiting') throw new BadRequestException('ゲーム開始後はお題を変更できません。');
     const player = room.players.find((item: any) => item.id === Number(dto.playerId));
@@ -200,6 +211,7 @@ export class RoomsService {
   async createAction(roomCode: string, dto: GameActionDto) {
     if (!dto.content?.trim()) throw new BadRequestException('内容を入力してください。');
     if (!['question', 'guess'].includes(dto.actionType)) throw new BadRequestException('行動種別が不正です。');
+    this.validateTextLength(dto.actionType === 'question' ? '質問' : '解答', dto.content, dto.actionType === 'question' ? GAME_VALIDATION.QUESTION_MAX_LENGTH : GAME_VALIDATION.GUESS_MAX_LENGTH);
     const room = await this.getRoomEntity(roomCode);
     if (room.status !== 'playing') throw new BadRequestException('ゲーム中ではありません。');
     if (room.phase !== 'action') throw new BadRequestException('現在は質問または解答を選択するタイミングではありません。');
@@ -306,6 +318,9 @@ export class RoomsService {
     }
     if (dto.restartMode === 'change_theme' && !dto.themeText?.trim()) {
       throw new BadRequestException('新しいテーマを入力してください。');
+    }
+    if (dto.restartMode === 'change_theme') {
+      this.validateTextLength('テーマ', dto.themeText, GAME_VALIDATION.THEME_MAX_LENGTH);
     }
 
     await this.prisma.gameQuestionAnswer.deleteMany({ where: { question: { roomId: room.id } } });
