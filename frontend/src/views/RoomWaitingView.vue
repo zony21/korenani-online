@@ -42,6 +42,22 @@ const submittedCount = computed(() => {
   return players.value.filter((player) => !!player.submittedTopic?.trim()).length;
 });
 
+const syncRoom = async () => {
+  const currentRoom = await getRoom(roomCode);
+  room.value = currentRoom;
+  players.value = currentRoom.players;
+  topicText.value = currentRoom.players.find((player) => player.id === myPlayerId.value)?.submittedTopic ?? topicText.value;
+
+  if (currentRoom.status === 'playing') {
+    router.push(`/game/${roomCode}`);
+  }
+};
+
+const joinSocketRoom = async () => {
+  socket.emit('joinRoom', { roomCode });
+  await syncRoom();
+};
+
 const copyJoinUrl = async () => {
   await navigator.clipboard.writeText(joinUrl.value);
   alert('入室URLをコピーしました。');
@@ -84,12 +100,10 @@ const onStartRoom = async () => {
 
 onMounted(async () => {
   try {
-    const currentRoom = await getRoom(roomCode);
-    room.value = currentRoom;
-    players.value = currentRoom.players;
-    topicText.value = myPlayer.value?.submittedTopic ?? '';
+    await syncRoom();
 
     socket.connect();
+    socket.on('connect', joinSocketRoom);
     socket.emit('joinRoom', { roomCode });
 
     socket.on('playersUpdated', (updatedPlayers: RoomPlayer[]) => {
@@ -111,6 +125,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  socket.off('connect', joinSocketRoom);
   socket.off('playersUpdated');
   socket.off('gameUpdated');
   socket.off('roomStarted');
@@ -163,7 +178,7 @@ onBeforeUnmount(() => {
             <button class="secondary-button" type="button" style="margin-top: 12px;" @click="onSubmitTopic">
               お題を提出
             </button>
-            <p v-if="successMessage" style="color: #059669; font-weight: 800;">{{ successMessage }}</p>
+            <p v-if="successMessage" class="success-message">{{ successMessage }}</p>
           </div>
         </div>
 
