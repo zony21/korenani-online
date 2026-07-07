@@ -108,6 +108,11 @@ const loadRoom = async () => {
   restartThemeText.value = room.value.themeText;
 };
 
+const joinSocketRoom = async () => {
+  socket.emit('joinRoom', { roomCode });
+  await loadRoom();
+};
+
 const onSubmitAction = async () => {
   errorMessage.value = '';
   if (isSubmitting.value) return;
@@ -230,6 +235,7 @@ onMounted(async () => {
   try {
     await loadRoom();
     socket.connect();
+    socket.on('connect', joinSocketRoom);
     socket.emit('joinRoom', { roomCode });
     socket.on('gameUpdated', (updatedRoom: Room) => {
       room.value = updatedRoom;
@@ -244,6 +250,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  socket.off('connect', joinSocketRoom);
   socket.off('gameUpdated');
   socket.disconnect();
   if (timerId) window.clearInterval(timerId);
